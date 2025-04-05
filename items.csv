@@ -1,0 +1,24 @@
+# Item data format: Name,Type,Value
+# Types: POTION,STATUS_HEAL,STAT_BOOST,REVIVE
+# For POTION: Value = amount of HP to heal
+# For STATUS_HEAL: Value = status to heal (None = all statuses)
+# For STAT_BOOST: Value = stat name,amount (e.g. attack,1)
+# For REVIVE: Value is ignored
+Potion,POTION,20
+Super Potion,POTION,50
+Hyper Potion,POTION,200
+Full Restore,POTION,999
+Antidote,STATUS_HEAL,Poison
+Awakening,STATUS_HEAL,Sleep
+Burn Heal,STATUS_HEAL,Burn
+Ice Heal,STATUS_HEAL,Freeze
+Paralyze Heal,STATUS_HEAL,Paralysis
+Full Heal,STATUS_HEAL,None
+X Attack,STAT_BOOST,attack,1
+X Defense,STAT_BOOST,defense,1
+X Sp. Atk,STAT_BOOST,specialAttack,1
+X Sp. Def,STAT_BOOST,specialDefense,1
+X Speed,STAT_BOOST,speed,1
+Dire Hit,STAT_BOOST,accuracy,1
+Revive,REVIVE,0
+Max Revive,REVIVE,0

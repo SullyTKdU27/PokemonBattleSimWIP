@@ -1,0 +1,648 @@
+#include "battle.h"
+#include <iostream>
+#include <algorithm>
+#include <iomanip>
+#include <sstream>
+
+// Constructor
+Battle::Battle(Team& p, Team& e, float difficulty, const Environment& env)
+    : playerTeam(p), enemyTeam(e), difficultyMultiplier(difficulty), environment(env) {
+    // Seed the random number generator
+    std::random_device rd;
+    rng.seed(rd());
+}
+
+// Start the battle
+bool Battle::start() {
+    std::cout << "\n=======================================" << std::endl;
+    std::cout << "BATTLE START!" << std::endl;
+    std::cout << environment.getDescription() << std::endl;
+    std::cout << "=======================================" << std::endl;
+    
+    // Continue until one team is defeated
+    while (!playerTeam.isDefeated() && !enemyTeam.isDefeated()) {
+        Pokemon& playerPokemon = playerTeam.getFirstAlivePokemon();
+        Pokemon& enemyPokemon = enemyTeam.getFirstAlivePokemon();
+        
+        // Display battle status
+        displayBattleStatus(playerPokemon, enemyPokemon);
+        
+        // Player's turn
+        if (!playerTurn()) {
+            break;  // Battle ended
+        }
+        
+        // Check if enemy is defeated
+        if (enemyTeam.isDefeated()) {
+            std::cout << "You won the battle!" << std::endl;
+            
+            // Give experience for defeating the last Pokemon
+            int exp = generateExperience(enemyTeam.getFirstAlivePokemon());
+            applyExperience(exp);
+            
+            return true;
+        }
+        
+        // Enemy's turn
+        if (!enemyTurn()) {
+            break;  // Battle ended
+        }
+        
+        // Check if player is defeated
+        if (playerTeam.isDefeated()) {
+            std::cout << "You lost the battle!" << std::endl;
+            return false;
+        }
+    }
+    
+    return !playerTeam.isDefeated();
+}
+
+// Handle the player's turn
+bool Battle::playerTurn() {
+    Pokemon& playerPokemon = playerTeam.getFirstAlivePokemon();
+    Pokemon& enemyPokemon = enemyTeam.getFirstAlivePokemon();
+    
+    // Check for status effects (may prevent action)
+    if (!checkStatusEffects(playerPokemon)) {
+        std::cout << "Your " << playerPokemon.name << " couldn't move!" << std::endl;
+        return true;
+    }
+    
+    // Display battle menu and get player choice
+    int choice = displayBattleMenu(playerPokemon);
+    
+    switch (choice) {
+        case 1: {  // Fight
+            int moveIndex = displayMoveMenu(playerPokemon);
+            if (moveIndex >= 0 && moveIndex < static_cast<int>(playerPokemon.moves.size())) {
+                int damage = useMove(playerPokemon, enemyPokemon, playerPokemon.moves[moveIndex]);
+                std::cout << "Your " << playerPokemon.name << " dealt " << damage << " damage!" << std::endl;
+            }
+            break;
+        }
+        case 2: {  // Item
+            int itemIndex = displayItemMenu();
+            if (itemIndex >= 0 && itemIndex < static_cast<int>(playerTeam.items.size())) {
+                int pokemonIndex = displaySwitchMenu();
+                if (pokemonIndex >= 0 && pokemonIndex < static_cast<int>(playerTeam.members.size())) {
+                    std::cout << playerTeam.useItem(itemIndex, pokemonIndex) << std::endl;
+                }
+            }
+            break;
+        }
+        case 3: {  // Switch
+            int pokemonIndex = displaySwitchMenu();
+            if (pokemonIndex >= 0 && pokemonIndex < static_cast<int>(playerTeam.members.size())) {
+                // Make sure the Pokemon isn't defeated
+                if (playerTeam.members[pokemonIndex].isDefeated()) {
+                    std::cout << "That Pokemon is unable to battle!" << std::endl;
+                } else {
+                    // Swap positions in the team array
+                    std::swap(playerTeam.members[0], playerTeam.members[pokemonIndex]);
+                    std::cout << "Go, " << playerTeam.members[0].name << "!" << std::endl;
+                }
+            }
+            break;
+        }
+        case 4:  // Run away
+            std::cout << "Got away safely!" << std::endl;
+            return false;
+    }
+    
+    // Check for status recovery at end of turn
+    checkStatusRecovery(playerPokemon);
+    
+    return true;
+}
+
+// Handle the enemy's turn
+bool Battle::enemyTurn() {
+    Pokemon& playerPokemon = playerTeam.getFirstAlivePokemon();
+    Pokemon& enemyPokemon = enemyTeam.getFirstAlivePokemon();
+    
+    // Check for status effects (may prevent action)
+    if (!checkStatusEffects(enemyPokemon)) {
+        std::cout << "Enemy " << enemyPokemon.name << " couldn't move!" << std::endl;
+        return true;
+    }
+    
+    // Simple AI: just use a random move
+    if (!enemyPokemon.moves.empty()) {
+        std::uniform_int_distribution<int> dist(0, enemyPokemon.moves.size() - 1);
+        int moveIndex = dist(rng);
+        
+        int damage = useMove(enemyPokemon, playerPokemon, enemyPokemon.moves[moveIndex]);
+        std::cout << "Enemy " << enemyPokemon.name << " dealt " << damage << " damage!" << std::endl;
+    }
+    
+    // Check for status recovery at end of turn
+    checkStatusRecovery(enemyPokemon);
+    
+    return true;
+}
+
+// Use a move
+int Battle::useMove(Pokemon& attacker, Pokemon& defender, const Move& move) {
+    std::cout << attacker.name << " used " << move.name << "!" << std::endl;
+    
+    // Check if move hits (accuracy check)
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+    float accuracyRoll = dist(rng);
+    
+    int attackerAccuracyStage = attacker.statModifiers["accuracy"];
+    int defenderEvasionStage = defender.statModifiers["evasion"];
+    
+    // Accuracy calculation with stage modifiers
+    float accuracyModifier = (3.0f + std::max(-6, std::min(6, attackerAccuracyStage - defenderEvasionStage))) / 3.0f;
+    float finalAccuracy = move.accuracy / 100.0f * accuracyModifier;
+    
+    if (accuracyRoll > finalAccuracy) {
+        std::cout << "But it missed!" << std::endl;
+        return 0;
+    }
+    
+    // For status moves
+    if (move.category == MoveCategory::STATUS) {
+        // Apply status effects
+        if (move.statusEffect != StatusEffect::NONE) {
+            std::uniform_real_distribution<float> statusRoll(0.0f, 100.0f);
+            if (statusRoll(rng) <= move.statusChance) {
+                std::cout << defender.applyStatus(move.statusEffect) << std::endl;
+            }
+        }
+        
+        // For moves that affect stats (not implemented in this example)
+        return 0;
+    }
+    
+    // Calculate damage for damaging moves
+    int damage = calculateDamage(attacker, defender, move);
+    
+    // Apply damage
+    defender.hp = std::max(0, defender.hp - damage);
+    
+    // Check for critical hit (simplified)
+    std::uniform_real_distribution<float> critDist(0.0f, 1.0f);
+    float critRoll = critDist(rng);
+    if (critRoll <= 0.0625f) {  // 1/16 chance of critical hit
+        damage = (int)(damage * 1.5f);
+        std::cout << "A critical hit!" << std::endl;
+    }
+    
+    // Check for type effectiveness
+    float typeEffectiveness = getTypeEffectiveness(move.type, defender.primaryType);
+    if (defender.secondaryType != PokemonType::NONE) {
+        typeEffectiveness *= getTypeEffectiveness(move.type, defender.secondaryType);
+    }
+    
+    if (typeEffectiveness > 1.0f) {
+        std::cout << "It's super effective!" << std::endl;
+    } else if (typeEffectiveness < 1.0f && typeEffectiveness > 0.0f) {
+        std::cout << "It's not very effective..." << std::endl;
+    } else if (typeEffectiveness == 0.0f) {
+        std::cout << "It has no effect..." << std::endl;
+        return 0;
+    }
+    
+    // Try to apply status effect if the move has one
+    if (move.statusEffect != StatusEffect::NONE) {
+        std::uniform_real_distribution<float> statusRoll(0.0f, 100.0f);
+        if (statusRoll(rng) <= move.statusChance) {
+            std::cout << defender.applyStatus(move.statusEffect) << std::endl;
+        }
+    }
+    
+    return damage;
+}
+
+// Calculate damage for a move
+int Battle::calculateDamage(const Pokemon& attacker, const Pokemon& defender, const Move& move) {
+    // No damage for status moves
+    if (move.category == MoveCategory::STATUS) {
+        return 0;
+    }
+    
+    // Base damage
+    int attack = (move.category == MoveCategory::PHYSICAL) ? attacker.attack : attacker.specialAttack;
+    int defense = (move.category == MoveCategory::PHYSICAL) ? defender.defense : defender.specialDefense;
+    
+    // Apply stat stage modifiers
+    int attackStage = (move.category == MoveCategory::PHYSICAL) ? 
+                      attacker.statModifiers.at("attack") : 
+                      attacker.statModifiers.at("specialAttack");
+    
+    int defenseStage = (move.category == MoveCategory::PHYSICAL) ? 
+                       defender.statModifiers.at("defense") : 
+                       defender.statModifiers.at("specialDefense");
+    
+    // Calculate stat modifier multipliers
+    float attackMod = (attackStage >= 0) ? 
+                      (2.0f + attackStage) / 2.0f : 
+                      2.0f / (2.0f - attackStage);
+    
+    float defenseMod = (defenseStage >= 0) ? 
+                       (2.0f + defenseStage) / 2.0f : 
+                       2.0f / (2.0f - defenseStage);
+    
+    attack = static_cast<int>(attack * attackMod);
+    defense = static_cast<int>(defense * defenseMod);
+    
+    // Calculate base damage
+    int baseDamage = ((2 * attacker.level) / 5 + 2) * move.power * attack / defense / 50 + 2;
+    
+    // STAB (Same Type Attack Bonus)
+    float stab = 1.0f;
+    if (move.type == attacker.primaryType || move.type == attacker.secondaryType) {
+        stab = 1.5f;
+    }
+    
+    // Type effectiveness
+    float typeEffectiveness = getTypeEffectiveness(move.type, defender.primaryType);
+    if (defender.secondaryType != PokemonType::NONE) {
+        typeEffectiveness *= getTypeEffectiveness(move.type, defender.secondaryType);
+    }
+    
+    // Environment boost
+    float environmentBoost = 1.0f;
+    if (move.type == environment.getBoostedType()) {
+        environmentBoost = environment.getBoostMultiplier();
+    }
+    
+    // Random factor (0.85 to 1.0)
+    std::uniform_real_distribution<float> dist(0.85f, 1.0f);
+    float randomFactor = dist(rng);
+    
+    // Final damage calculation
+    int finalDamage = static_cast<int>(baseDamage * stab * typeEffectiveness * environmentBoost * randomFactor * difficultyMultiplier);
+    
+    return std::max(1, finalDamage);  // Always do at least 1 damage
+}
+
+// Display the battle menu
+int Battle::displayBattleMenu(const Pokemon& activePokemon) {
+    std::cout << "\nWhat will " << activePokemon.name << " do?" << std::endl;
+    std::cout << "1. Fight" << std::endl;
+    std::cout << "2. Item" << std::endl;
+    std::cout << "3. Pokemon" << std::endl;
+    std::cout << "4. Run" << std::endl;
+    
+    int choice;
+    std::cout << "Enter choice (1-4): ";
+    std::cin >> choice;
+    
+    // Validate input
+    while (choice < 1 || choice > 4) {
+        std::cout << "Invalid choice. Try again: ";
+        std::cin >> choice;
+    }
+    
+    return choice;
+}
+
+// Display the move selection menu
+int Battle::displayMoveMenu(const Pokemon& activePokemon) {
+    std::cout << "\nChoose a move:" << std::endl;
+    
+    for (size_t i = 0; i < activePokemon.moves.size(); ++i) {
+        const Move& move = activePokemon.moves[i];
+        std::cout << i + 1 << ". " << getTypeColor(move.type) << move.name << "\033[0m"
+                  << " (Type: " << typeToString(move.type) 
+                  << ", Power: " << move.power 
+                  << ", Accuracy: " << move.accuracy << ")" << std::endl;
+    }
+    
+    int choice;
+    std::cout << "Enter choice (1-" << activePokemon.moves.size() << "): ";
+    std::cin >> choice;
+    
+    // Validate input
+    while (choice < 1 || choice > static_cast<int>(activePokemon.moves.size())) {
+        std::cout << "Invalid choice. Try again: ";
+        std::cin >> choice;
+    }
+    
+    return choice - 1;  // Convert to 0-based index
+}
+
+// Display the item menu
+int Battle::displayItemMenu() {
+    if (playerTeam.items.empty()) {
+        std::cout << "You have no items!" << std::endl;
+        return -1;
+    }
+    
+    std::cout << "\nChoose an item:" << std::endl;
+    
+    for (size_t i = 0; i < playerTeam.items.size(); ++i) {
+        const Item& item = playerTeam.items[i];
+        std::cout << i + 1 << ". " << item.name << " - " << item.getDescription() << std::endl;
+    }
+    
+    int choice;
+    std::cout << "Enter choice (1-" << playerTeam.items.size() << "): ";
+    std::cin >> choice;
+    
+    // Validate input
+    while (choice < 1 || choice > static_cast<int>(playerTeam.items.size())) {
+        std::cout << "Invalid choice. Try again: ";
+        std::cin >> choice;
+    }
+    
+    return choice - 1;  // Convert to 0-based index
+}
+
+// Display the Pokemon switch menu
+int Battle::displaySwitchMenu() {
+    std::cout << "\nChoose a Pokemon:" << std::endl;
+    
+    for (size_t i = 0; i < playerTeam.members.size(); ++i) {
+        const Pokemon& pokemon = playerTeam.members[i];
+        std::cout << i + 1 << ". " << pokemon.getColoredDisplay() 
+                  << " - HP: " << pokemon.hp << "/" << pokemon.maxHp 
+                  << (pokemon.isDefeated() ? " (Fainted)" : "") << std::endl;
+    }
+    
+    int choice;
+    std::cout << "Enter choice (1-" << playerTeam.members.size() << "): ";
+    std::cin >> choice;
+    
+    // Validate input
+    while (choice < 1 || choice > static_cast<int>(playerTeam.members.size())) {
+        std::cout << "Invalid choice. Try again: ";
+        std::cin >> choice;
+    }
+    
+    return choice - 1;  // Convert to 0-based index
+}
+
+// Display battle status
+void Battle::displayBattleStatus(const Pokemon& playerPokemon, const Pokemon& enemyPokemon) {
+    // Display enemy Pokemon information
+    std::cout << "\nEnemy " << enemyPokemon.getColoredDisplay() << std::endl;
+    std::cout << "HP: " << std::setw(3) << enemyPokemon.hp << "/" << enemyPokemon.maxHp << " ";
+    
+    // HP bar for enemy
+    int barWidth = 20;
+    int filledWidth = static_cast<int>((float)enemyPokemon.hp / enemyPokemon.maxHp * barWidth);
+    
+    std::cout << "[";
+    for (int i = 0; i < barWidth; ++i) {
+        if (i < filledWidth) {
+            std::cout << "=";
+        } else {
+            std::cout << " ";
+        }
+    }
+    std::cout << "]" << std::endl;
+    
+    // Display player Pokemon information
+    std::cout << "\nYour " << playerPokemon.getColoredDisplay() << std::endl;
+    std::cout << "HP: " << std::setw(3) << playerPokemon.hp << "/" << playerPokemon.maxHp << " ";
+    
+    // HP bar for player
+    filledWidth = static_cast<int>((float)playerPokemon.hp / playerPokemon.maxHp * barWidth);
+    
+    std::cout << "[";
+    for (int i = 0; i < barWidth; ++i) {
+        if (i < filledWidth) {
+            std::cout << "=";
+        } else {
+            std::cout << " ";
+        }
+    }
+    std::cout << "]" << std::endl;
+}
+
+// Check for status effects and apply them
+bool Battle::checkStatusEffects(Pokemon& pokemon) {
+    switch (pokemon.status) {
+        case StatusEffect::PARALYSIS: {
+            // 25% chance to be fully paralyzed
+            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+            if (dist(rng) < 0.25f) {
+                std::cout << pokemon.name << " is fully paralyzed and can't move!" << std::endl;
+                return false;
+            }
+            break;
+        }
+        case StatusEffect::SLEEP: {
+            // 34% chance to wake up
+            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+            if (dist(rng) < 0.34f) {
+                std::cout << pokemon.name << " woke up!" << std::endl;
+                pokemon.status = StatusEffect::NONE;
+            } else {
+                std::cout << pokemon.name << " is fast asleep!" << std::endl;
+                return false;
+            }
+            break;
+        }
+        case StatusEffect::FREEZE: {
+            // 20% chance to thaw
+            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+            if (dist(rng) < 0.2f) {
+                std::cout << pokemon.name << " thawed out!" << std::endl;
+                pokemon.status = StatusEffect::NONE;
+            } else {
+                std::cout << pokemon.name << " is frozen solid!" << std::endl;
+                return false;
+            }
+            break;
+        }
+        case StatusEffect::BURN: {
+            // Burn damage
+            int burnDamage = std::max(1, pokemon.maxHp / 16);
+            pokemon.hp = std::max(0, pokemon.hp - burnDamage);
+            std::cout << pokemon.name << " was hurt by its burn!" << std::endl;
+            break;
+        }
+        case StatusEffect::POISON: {
+            // Poison damage
+            int poisonDamage = std::max(1, pokemon.maxHp / 8);
+            pokemon.hp = std::max(0, pokemon.hp - poisonDamage);
+            std::cout << pokemon.name << " was hurt by poison!" << std::endl;
+            break;
+        }
+        case StatusEffect::CONFUSION: {
+            // 33% chance to hurt itself in confusion
+            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+            if (dist(rng) < 0.33f) {
+                int confusionDamage = calculateDamage(pokemon, pokemon, 
+                    Move("Confusion Damage", PokemonType::NORMAL, MoveCategory::PHYSICAL, 40, 100, 0, StatusEffect::NONE, 0));
+                pokemon.hp = std::max(0, pokemon.hp - confusionDamage);
+                std::cout << pokemon.name << " hurt itself in confusion!" << std::endl;
+                return false;
+            }
+            break;
+        }
+        default:
+            break;
+    }
+    
+    return !pokemon.isDefeated();  // Can move if not defeated
+}
+
+// Check for status recovery
+void Battle::checkStatusRecovery(Pokemon& pokemon) {
+    // Some statuses can recover naturally each turn
+    switch (pokemon.status) {
+        case StatusEffect::CONFUSION: {
+            // 33% chance to recover from confusion each turn
+            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+            if (dist(rng) < 0.33f) {
+                std::cout << pokemon.name << " snapped out of confusion!" << std::endl;
+                pokemon.status = StatusEffect::NONE;
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+// Generate experience points for defeating a Pokemon
+int Battle::generateExperience(const Pokemon& defeated) {
+    // Simple formula: base exp * level / 7
+    int baseExp = 50;  // Could vary by Pokemon species
+    int experience = baseExp * defeated.level / 7;
+    
+    std::cout << "Earned " << experience << " experience points!" << std::endl;
+    return experience;
+}
+
+// Apply experience to the player's team
+void Battle::applyExperience(int exp) {
+    // Distribute exp among all non-fainted Pokemon
+    int activePokemon = 0;
+    for (auto& pokemon : playerTeam.members) {
+        if (!pokemon.isDefeated()) {
+            activePokemon++;
+        }
+    }
+    
+    if (activePokemon == 0) {
+        return;  // No Pokemon to receive exp
+    }
+    
+    // Split exp among active Pokemon
+    int expPerPokemon = exp / activePokemon;
+    
+    for (auto& pokemon : playerTeam.members) {
+        if (!pokemon.isDefeated()) {
+            // Apply experience to this Pokemon
+            int oldLevel = pokemon.level;
+            pokemon.gainExperience(expPerPokemon);
+            
+            // Check for level up
+            if (pokemon.level > oldLevel) {
+                std::cout << pokemon.name << " grew to level " << pokemon.level << "!" << std::endl;
+                
+                // Check for evolution
+                if (pokemon.canEvolve()) {
+                    std::cout << pokemon.name << " is evolving!" << std::endl;
+                    pokemon.evolve();
+                    std::cout << "Congratulations! Your " << pokemon.name << " evolved!" << std::endl;
+                }
+            }
+        }
+    }
+}
+
+// Get type effectiveness multiplier
+float Battle::getTypeEffectiveness(PokemonType attackType, PokemonType defenseType) {
+    // Type chart implementation
+    static const std::map<PokemonType, std::map<PokemonType, float>> typeChart = {
+        {PokemonType::NORMAL, {
+            {PokemonType::ROCK, 0.5f}, {PokemonType::GHOST, 0.0f}, {PokemonType::STEEL, 0.5f}
+        }},
+        {PokemonType::FIRE, {
+            {PokemonType::FIRE, 0.5f}, {PokemonType::WATER, 0.5f}, {PokemonType::GRASS, 2.0f},
+            {PokemonType::ICE, 2.0f}, {PokemonType::BUG, 2.0f}, {PokemonType::ROCK, 0.5f},
+            {PokemonType::DRAGON, 0.5f}, {PokemonType::STEEL, 2.0f}
+        }},
+        {PokemonType::WATER, {
+            {PokemonType::FIRE, 2.0f}, {PokemonType::WATER, 0.5f}, {PokemonType::GRASS, 0.5f},
+            {PokemonType::GROUND, 2.0f}, {PokemonType::ROCK, 2.0f}, {PokemonType::DRAGON, 0.5f}
+        }},
+        {PokemonType::GRASS, {
+            {PokemonType::FIRE, 0.5f}, {PokemonType::WATER, 2.0f}, {PokemonType::GRASS, 0.5f},
+            {PokemonType::POISON, 0.5f}, {PokemonType::GROUND, 2.0f}, {PokemonType::FLYING, 0.5f},
+            {PokemonType::BUG, 0.5f}, {PokemonType::ROCK, 2.0f}, {PokemonType::DRAGON, 0.5f},
+            {PokemonType::STEEL, 0.5f}
+        }},
+        {PokemonType::ELECTRIC, {
+            {PokemonType::WATER, 2.0f}, {PokemonType::ELECTRIC, 0.5f}, {PokemonType::GRASS, 0.5f},
+            {PokemonType::GROUND, 0.0f}, {PokemonType::FLYING, 2.0f}, {PokemonType::DRAGON, 0.5f}
+        }},
+        {PokemonType::ICE, {
+            {PokemonType::FIRE, 0.5f}, {PokemonType::WATER, 0.5f}, {PokemonType::GRASS, 2.0f},
+            {PokemonType::ICE, 0.5f}, {PokemonType::GROUND, 2.0f}, {PokemonType::FLYING, 2.0f},
+            {PokemonType::DRAGON, 2.0f}, {PokemonType::STEEL, 0.5f}
+        }},
+        {PokemonType::FIGHTING, {
+            {PokemonType::NORMAL, 2.0f}, {PokemonType::ICE, 2.0f}, {PokemonType::POISON, 0.5f},
+            {PokemonType::FLYING, 0.5f}, {PokemonType::PSYCHIC, 0.5f}, {PokemonType::BUG, 0.5f},
+            {PokemonType::ROCK, 2.0f}, {PokemonType::GHOST, 0.0f}, {PokemonType::DARK, 2.0f},
+            {PokemonType::STEEL, 2.0f}, {PokemonType::FAIRY, 0.5f}
+        }},
+        // Additional types and their effectiveness would go here
+        // Adding a few more common types for completeness
+        {PokemonType::PSYCHIC, {
+            {PokemonType::FIGHTING, 2.0f}, {PokemonType::POISON, 2.0f}, {PokemonType::PSYCHIC, 0.5f},
+            {PokemonType::DARK, 0.0f}, {PokemonType::STEEL, 0.5f}
+        }},
+        {PokemonType::GHOST, {
+            {PokemonType::NORMAL, 0.0f}, {PokemonType::PSYCHIC, 2.0f}, {PokemonType::GHOST, 2.0f},
+            {PokemonType::DARK, 0.5f}
+        }},
+        {PokemonType::DRAGON, {
+            {PokemonType::DRAGON, 2.0f}, {PokemonType::STEEL, 0.5f}, {PokemonType::FAIRY, 0.0f}
+        }}
+    };
+    
+    // Default effectiveness is 1.0 (normal)
+    float effectiveness = 1.0f;
+    
+    // Check if we have this type combination in our chart
+    auto attackIter = typeChart.find(attackType);
+    if (attackIter != typeChart.end()) {
+        auto defenseIter = attackIter->second.find(defenseType);
+        if (defenseIter != attackIter->second.end()) {
+            effectiveness = defenseIter->second;
+        }
+    }
+    
+    return effectiveness;
+}
+
+// Get ANSI color code for a type
+std::string Battle::getTypeColor(PokemonType type) {
+    static const std::map<PokemonType, std::string> typeColors = {
+        {PokemonType::NORMAL, "\033[38;5;250m"},    // Light gray
+        {PokemonType::FIRE, "\033[38;5;202m"},      // Orange
+        {PokemonType::WATER, "\033[38;5;39m"},      // Blue
+        {PokemonType::GRASS, "\033[38;5;76m"},      // Green
+        {PokemonType::ELECTRIC, "\033[38;5;220m"},  // Yellow
+        {PokemonType::ICE, "\033[38;5;153m"},       // Light blue
+        {PokemonType::FIGHTING, "\033[38;5;124m"},  // Dark red
+        {PokemonType::POISON, "\033[38;5;128m"},    // Purple
+        {PokemonType::GROUND, "\033[38;5;172m"},    // Brown
+        {PokemonType::FLYING, "\033[38;5;183m"},    // Light purple
+        {PokemonType::PSYCHIC, "\033[38;5;206m"},   // Pink
+        {PokemonType::BUG, "\033[38;5;106m"},       // Olive
+        {PokemonType::ROCK, "\033[38;5;136m"},      // Dark yellow
+        {PokemonType::GHOST, "\033[38;5;96m"},      // Dark purple
+        {PokemonType::DRAGON, "\033[38;5;62m"},     // Dark blue
+        {PokemonType::DARK, "\033[38;5;238m"},      // Dark gray
+        {PokemonType::STEEL, "\033[38;5;250m"},     // Steel gray
+        {PokemonType::FAIRY, "\033[38;5;218m"}      // Light pink
+    };
+    
+    auto it = typeColors.find(type);
+    if (it != typeColors.end()) {
+        return it->second;
+    }
+    
+    return "\033[0m";  // Reset color
+}

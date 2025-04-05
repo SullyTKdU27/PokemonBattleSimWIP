@@ -1,0 +1,32 @@
+# Pokemon data format: Name,HP,Attack,Defense,SpecialAttack,SpecialDefense,Speed,PrimaryType,SecondaryType,EvolutionForm,EvolutionLevel
+# Types: Normal,Fire,Water,Grass,Electric,Ice,Fighting,Poison,Ground,Flying,Psychic,Bug,Rock,Ghost,Dragon,Dark,Steel,Fairy
+Pikachu,100,55,40,50,50,90,Electric,,Raichu,30
+Charmander,78,52,43,60,50,65,Fire,,Charmelion,16
+Charmelion,116,64,58,80,65,80,Fire,,Charizard,36
+Charizard,156,84,78,109,85,100,Fire,Flying,,
+Bulbasaur,90,49,49,65,65,45,Grass,Poison,Ivysaur,16
+Ivysaur,120,62,63,80,80,60,Grass,Poison,Venusaur,32
+Venusaur,160,82,83,100,100,80,Grass,Poison,,
+Squirtle,88,48,65,50,64,43,Water,,Wartortle,16
+Wartortle,118,63,80,65,80,58,Water,,Blastoise,36
+Blastoise,158,83,100,85,105,78,Water,,
+Eevee,110,55,50,45,65,55,Normal,,
+Vaporeon,260,65,60,110,95,65,Water,,
+Jolteon,130,65,60,110,95,130,Electric,,
+Flareon,130,130,60,95,110,65,Fire,,
+Mewtwo,212,110,90,154,90,130,Psychic,,
+Gengar,120,65,60,130,75,110,Ghost,Poison,,
+Machamp,180,130,80,65,85,55,Fighting,,
+Gyarados,190,125,79,60,100,81,Water,Flying,,
+Snorlax,320,110,65,65,110,30,Normal,,
+Dragonite,182,134,95,100,100,80,Dragon,Flying,,
+Alakazam,110,50,45,135,95,120,Psychic,,
+Tyranitar,200,134,110,95,100,61,Rock,Dark,,
+Garchomp,198,130,95,80,85,102,Dragon,Ground,,
+Lucario,140,110,70,115,70,90,Fighting,Steel,,
+Gardevoir,136,65,65,125,115,80,Psychic,Fairy,,
+Blissey,510,10,10,75,135,55,Normal,,
+Metagross,160,135,130,95,90,70,Steel,Psychic,,
+Salamence,190,135,80,110,80,100,Dragon,Flying,,
+Hydreigon,184,105,90,125,90,98,Dark,Dragon,,
+Volcarona,170,60,65,135,105,100,Bug,Fire,,
