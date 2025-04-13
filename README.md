@@ -69,3 +69,37 @@ To build and run the project, you need the following:
 4. If the build is successful, run the executable:
    ```bash
    ./PokemonBattleSimulator.exe
+
+---
+
+### Using Command Line
+1. Open a terminal (e.g., Cygwin Terminal or Command Prompt) and navigate to the project folder:
+   ```bash
+   cd /path/to/PokemonBattleSim
+   ```
+2. Compile the project using `g++`:
+   ```bash
+   g++ -std=c++17 -g main.cpp battle.cpp data_loader.cpp environment.cpp game.cpp item.cpp move.cpp pokemon.cpp record_log.cpp status.cpp team.cpp types.cpp -o PokemonBattleSimulator.exe
+   ```
+3. Run the executable:
+   ```bash
+   ./PokemonBattleSimulator.exe
+   ```
+
+---
+
+## Future Improvements
+- Fix existing bugs and issues to ensure the program runs as intended.
+- Add more Pokemon, moves, and items.
+- Implement AI for enemy trainers.
+- Add a graphical user interface (GUI).
+- Support multiplayer battles.
+- Improve logging and debugging tools for better error tracking.
+- Optimize performance for larger-scale battles.
+
+---
+
+## Credits
+- Inspired by the Pokemon franchise.
+
+---
